@@ -3,15 +3,17 @@ import google.generativeai as genai
 import pandas as pd
 import json
 
-# הגדרת ה-API Key שלך
+# המפתח שלך
 MY_API_KEY = "AIzaSyB4t7TkPwPdR_d5sBPPig6NuekB5yINzt4"
 
 st.set_page_config(page_title="מחלץ לידים חכם", layout="wide")
 st.title("מחלץ לידים מצילומי מסך 📥")
 
+# הגדרת ה-API
 genai.configure(api_key=MY_API_KEY)
-# שימוש במודל יציב יותר
-model = genai.GenerativeModel('gemini-1.5-flash')
+
+# עדכון שם המודל לגרסה המדויקת
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 uploaded_files = st.file_uploader("גררי לכאן צילומי מסך", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
@@ -21,27 +23,37 @@ if st.button("התחל עיבוד") and uploaded_files:
     
     for i, file in enumerate(uploaded_files):
         try:
-            # הכנת התמונה בצורה בטוחה יותר
-            img_bytes = file.getvalue()
-            img_parts = [{"mime_type": file.type, "data": img_bytes}]
+            # הכנת התמונה
+            img_data = file.getvalue()
             
             prompt = """
-            Extract from this chat screenshot: 
-            - first_name: The person's name
-            - phone: Phone number (remove 972 prefix, ensure it starts with 05)
-            - interest: 'ארון' or 'מזרן'
-            Return ONLY a valid JSON object.
+            Scan this image and extract:
+            1. first_name: The person's name.
+            2. phone: The phone number. REMOVE the '972' prefix if it exists. Ensure it starts with 0.
+            3. interest: If they mention 'ארון' write 'ארון', if 'מזרן' write 'מזרן'.
+            
+            Return ONLY a JSON object like this:
+            {"first_name": "name", "phone": "0501234567", "interest": "ארון"}
             """
             
-            response = model.generate_content([prompt, img_parts[0]])
+            # שליחה למודל
+            response = model.generate_content([
+                prompt,
+                {'mime_type': 'image/jpeg', 'data': img_data}
+            ])
             
-            # ניקוי התשובה מסימני markdown אם קיימים
-            clean_res = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_res)
+            # ניקוי הטקסט
+            raw_text = response.text.strip()
+            if "```json" in raw_text:
+                raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_text:
+                raw_text = raw_text.split("```")[1].split("```")[0].strip()
+            
+            data = json.loads(raw_text)
             all_leads.append(data)
             
         except Exception as e:
-            st.error(f"שגיאה בקובץ {file.name}: {str(e)}")
+            st.error(f"שגיאה בקובץ {file.name}: מודל ה-AI לא הצליח לקרוא את התמונה. נסי שוב.")
         
         progress_bar.progress((i + 1) / len(uploaded_files))
 
@@ -49,7 +61,8 @@ if st.button("התחל עיבוד") and uploaded_files:
         df = pd.DataFrame(all_leads)
         df.columns = ["שם פרטי", "טלפון", "במה התעניינו"]
         st.success("העיבוד הושלם!")
-        st.dataframe(df)
+        st.dataframe(df, use_container_width=True)
         
+        # יצירת קובץ CSV עם קידוד שמתאים לעברית באקסל
         csv = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-        st.download_button("הורד טבלה ל-Google Sheets", data=csv, file_name="leads.csv", mime="text/csv")
+        st.download_button("הורד טבלה ל-Google Sheets", data=csv, file_name="leads_list.csv", mime="text/csv")
